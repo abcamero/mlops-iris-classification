@@ -1,66 +1,38 @@
+# src/train.py
+
 import pandas as pd
+import numpy as np
 import mlflow
+import os
 import mlflow.sklearn
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import f1_score
+from preprocess import load_and_preprocess_data
 
-from mlflow.tracking import MlflowClient
 
-def load_data(path="data/iris_processed.csv"):
-    df = pd.read_csv(path)
-    X = df.drop("target", axis=1)
-    y = df["target"]
-    return train_test_split(X, y, test_size=0.2, random_state=42)
+mlflow.set_tracking_uri("http://127.0.0.1:5001")
+mlflow.set_experiment("Iris-Experiment-Final")
 
-def train_logistic_regression(X_train, X_test, y_train, y_test):
-    with mlflow.start_run(run_name="LogisticRegression") as run:
-        model = LogisticRegression(max_iter=200)
+def train_and_log(model, model_name, X_train, X_test, y_train, y_test):
+    with mlflow.start_run(run_name=model_name):
         model.fit(X_train, y_train)
-
         y_pred = model.predict(X_test)
-        acc = accuracy_score(y_test, y_pred)
         f1 = f1_score(y_test, y_pred, average='macro')
-
-        mlflow.log_param("model_type", "LogisticRegression")
-        mlflow.log_metric("accuracy", acc)
+        
         mlflow.log_metric("f1_score", f1)
-        mlflow.sklearn.log_model(model, "model")
-
-        return f1, run.info.run_id
-
-def train_random_forest(X_train, X_test, y_train, y_test):
-    with mlflow.start_run(run_name="RandomForest") as run:
-        model = RandomForestClassifier(n_estimators=100, max_depth=4, random_state=42)
-        model.fit(X_train, y_train)
-
-        y_pred = model.predict(X_test)
-        acc = accuracy_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred, average='macro')
-
-        mlflow.log_param("model_type", "RandomForest")
-        mlflow.log_param("n_estimators", 100)
-        mlflow.log_param("max_depth", 4)
-        mlflow.log_metric("accuracy", acc)
-        mlflow.log_metric("f1_score", f1)
-        mlflow.sklearn.log_model(model, "model")
-
-        return f1, run.info.run_id
+        mlflow.sklearn.log_model(model, "model")  # artifact_path = "model"
+        
+        print(f"✔️ Logged {model_name} | F1: {f1:.4f}")
 
 if __name__ == "__main__":
-    X_train, X_test, y_train, y_test = load_data()
+    DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "iris_processed.csv")
+    df = pd.read_csv(DATA_PATH)
+    X = df.drop("target", axis=1)
+    y = df["target"]
 
-    f1_lr, run_id_lr = train_logistic_regression(X_train, X_test, y_train, y_test)
-    f1_rf, run_id_rf = train_random_forest(X_train, X_test, y_train, y_test)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Determine best model
-    if f1_lr > f1_rf:
-        best_run_id = run_id_lr
-    else:
-        best_run_id = run_id_rf
-
-    # Register the best model
-    model_uri = f"runs:/{best_run_id}/model"
-    result = mlflow.register_model(model_uri=model_uri, name="iris_classifier")
-    print(f"✅ Registered best model as 'iris_classifier' (v{result.version})")
+    train_and_log(LogisticRegression(max_iter=200), "LogisticRegression", X_train, X_test, y_train, y_test)
+    train_and_log(RandomForestClassifier(), "RandomForest", X_train, X_test, y_train, y_test)
